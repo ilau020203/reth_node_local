@@ -1,0 +1,86 @@
+version: "3.8"
+
+services:
+  lighthouse:
+    image: sigp/lighthouse:latest
+    command: >
+      lighthouse bn
+      --network mainnet
+      --checkpoint-sync-url https://beaconstate.ethstaker.cc
+      --http
+      --http-address 0.0.0.0
+      --http-port 5052
+      --metrics
+      --metrics-address 0.0.0.0
+      --metrics-port 5056
+      --execution-endpoint http://reth:8551
+      --execution-jwt /shared/jwt.hex
+    volumes:
+      - /data-node/lighthousedata:/root/.lighthouse
+      - /data-node/shared:/shared
+    ports:
+      - "5052:5052"
+      - "5056:5056"
+
+  reth:
+    restart: always
+    build:
+      context: ./reth
+      dockerfile: Dockerfile
+    volumes:
+      - /data-node/rethdata:/root/.local/share/reth/mainnet
+      - /data-node/rethlogs:/root/rethlogs
+      - /data-node/shared:/shared
+      - /data-node/reth-config/config.toml:/etc/reth/config.toml
+    command: >
+      /reth/target/release/reth node
+      --config /etc/reth/config.toml
+      --chain mainnet
+      --http
+      --http.addr 0.0.0.0
+      --http.port 8545
+      --ws
+      --ws.addr 0.0.0.0
+      --ws.port 8546
+      --authrpc.addr 0.0.0.0
+      --authrpc.port 8551
+      --authrpc.jwtsecret /shared/jwt.hex
+      --metrics 0.0.0.0:9000
+      --log.file.directory /root/rethlogs
+      --debug.rpc-consensus-ws ws://lighthouse:5052
+    ports:
+      - "8545:8545"
+      - "8546:8546"
+      - "8551:8551"
+      - "9000:9000"
+
+  prometheus:
+    restart: always
+    image: prom/prometheus
+    user: root
+    depends_on:
+      - reth
+      - lighthouse
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus/:/etc/prometheus/
+      - /data-node/prometheusdata:/prometheusdata
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheusdata'
+
+  grafana:
+    restart: always
+    image: grafana/grafana
+    user: '472'
+    depends_on:
+      - reth
+      - prometheus
+    ports:
+      - 3000:3000
+    volumes:
+      - /data-node/grafanadata:/var/lib/grafanadata
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+
+# Volumes section removed, since we use direct host paths now
